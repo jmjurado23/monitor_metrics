@@ -1,0 +1,26 @@
+# config/initializers/monitor_metrics.rb in optimal_path/backend (PostgreSQL, Rails 7.0)
+MonitorMetrics.configure do |c|
+  c.app_name = "AgroRoute"
+
+  c.metric :paths_today, label: "Routes computed today" do
+    Path.where("created_at >= ?", Time.zone.now.beginning_of_day).count
+  end
+
+  c.metric :users, label: "Users" do
+    User.count
+  end
+
+  c.metric :vehicles, label: "Vehicles" do
+    Vehicle.count
+  end
+
+  c.metric :paths_per_day, label: "Routes per day", type: :series, ttl: 600 do
+    times = Path.where("created_at >= ?", 14.days.ago.beginning_of_day).pluck(:created_at)
+    MonitorMetrics::Buckets.count(times, every: 1.day.to_i, last: 14)
+  end
+
+  c.metric :fuel_saved, label: "Fuel saved today", unit: "L" do
+    Path.where("created_at >= ?", Time.zone.now.beginning_of_day)
+        .sum("baseline_fuel_l - est_fuel_l").round(1)
+  end
+end
