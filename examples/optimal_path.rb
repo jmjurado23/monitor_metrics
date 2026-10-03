@@ -2,8 +2,9 @@
 MonitorMetrics.configure do |c|
   c.app_name = "AgroRoute"
 
+  # Paths are soft-deleted (deleted_at) and have no created_at: use computed_at.
   c.metric :paths_today, label: "Routes computed today" do
-    Path.where("created_at >= ?", Time.zone.now.beginning_of_day).count
+    Path.alive.where("computed_at >= ?", Time.zone.now.beginning_of_day).count
   end
 
   c.metric :users, label: "Users" do
@@ -11,16 +12,15 @@ MonitorMetrics.configure do |c|
   end
 
   c.metric :vehicles, label: "Vehicles" do
-    Vehicle.count
+    Vehicle.alive.count
   end
 
   c.metric :paths_per_day, label: "Routes per day", type: :series, ttl: 600 do
-    times = Path.where("created_at >= ?", 14.days.ago.beginning_of_day).pluck(:created_at)
+    times = Path.alive.where("computed_at >= ?", 14.days.ago.beginning_of_day).pluck(:computed_at)
     MonitorMetrics::Buckets.count(times, every: 1.day.to_i, last: 14)
   end
 
-  c.metric :fuel_saved, label: "Fuel saved today", unit: "L" do
-    Path.where("created_at >= ?", Time.zone.now.beginning_of_day)
-        .sum("baseline_fuel_l - est_fuel_l").round(1)
+  c.metric :fuel_saved_today, label: "Fuel saved today", unit: "L" do
+    Path.alive.where("computed_at >= ?", Time.zone.now.beginning_of_day).sum(:fuel_saved_l).round(1)
   end
 end
