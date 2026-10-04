@@ -18,21 +18,32 @@ class AppSettingsTest < Minitest::Test
         a.order = 1
       end
     end
-    h = settings.to_h(3002, "puma")
+    h = settings.to_h("port" => 3002, "socket" => nil, "source" => "puma",
+                      "listeners" => { "tcp" => [3002], "unix" => [] })
     assert_equal "cocina_tradicional", h["id"]        # no Rails here: from the name
     assert_equal "Cocina Tradicional", h["name"]
     assert_equal ["cocina.example"], h["hosts"]
     assert_equal 3002, h["port"]
     assert_equal "puma", h["port_source"]
+    assert_equal({ "tcp" => [3002], "unix" => [] }, h["listeners"])
     assert_equal "/", h["health_path"]
     assert_equal true, h["enabled"]
   end
 
   def test_explicit_port_wins_over_detected
     settings.port = "3004"
-    h = settings.to_h(3000, "env")
+    h = settings.to_h("port" => 3000, "source" => "env")
     assert_equal 3004, h["port"]
     assert_equal "config", h["port_source"]
+  end
+
+  def test_explicit_socket
+    settings.socket = "/tmp/iloveradio.socket"
+    h = settings.to_h("port" => nil, "socket" => "/tmp/other.socket", "source" => "listening")
+    assert_equal "/tmp/iloveradio.socket", h["socket"]
+    assert_equal "config", h["port_source"]
+    settings.socket = "tmp/relative.socket"
+    assert_raises(ArgumentError) { settings.to_h }
   end
 
   def test_id_is_normalized

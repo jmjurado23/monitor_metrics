@@ -10,7 +10,7 @@ Works with Rails 5.2 → 8.x, Ruby 2.7 → 4.x, ActiveRecord or Mongoid.
 
 ```ruby
 # Gemfile
-gem "monitor_metrics", git: "https://github.com/jmjurado23/monitor_metrics", tag: "v0.2.0"
+gem "monitor_metrics", git: "https://github.com/jmjurado23/monitor_metrics", tag: "v0.3.0"
 ```
 
 The Railtie inserts the middleware at the top of the stack. Nothing else is needed for
@@ -30,6 +30,7 @@ MonitorMetrics.configure do |c|
     a.url         = "https://cocina-tradicional.es" # checked publicly through nginx
     a.hosts       = ["cocina.example"]              # extra hosts (url host and www. implied)
     a.port        = 3002                            # default: detected, see below
+    a.socket      = "/tmp/cooking.socket"           # default: detected, see below
     a.screen      = "cooking_rails"                 # screen session to check
     a.health_path = "/"
     a.order       = 1                               # position on the wall
@@ -44,8 +45,13 @@ When the app boots **as a server in production**, it writes
 that folder, so the app appears on the wall after its first restart, and stays there as
 DOWN if it later crashes. Consoles, `rake` and `rails runner` never register.
 
-- Port detection order: `a.port`, the running `rails server -p`, the `puma` CLI bind,
-  `-p`/`--port` on the command line, `ENV["PORT"]`. The report says which one was used.
+- Address detection: `a.port` / `a.socket` win. Otherwise the app reads the sockets it
+  **really** listens on from Linux `/proc` (TCP ports and Unix sockets like
+  `unix:///tmp/app.socket`, Puma control sockets excluded). At boot Puma has not bound
+  yet, so the entry is rewritten in the background as soon as it has. Without `/proc`,
+  it falls back to the `puma` CLI binds, `-p`/`--port`, then `ENV["PORT"]`. `rails server`
+  options are never used: they say 3000 even when Puma binds a socket. The report and
+  the registry file say which source was used (`port_source`) and list every listener.
 - `c.registry_dir` (or `MONITOR_METRICS_REGISTRY`) changes the folder;
   `c.register_environments` (default `%w[production]`) the environments;
   `MONITOR_METRICS_REGISTER=1` / `=0` forces it on or off.

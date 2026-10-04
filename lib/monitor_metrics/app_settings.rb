@@ -12,8 +12,10 @@ module MonitorMetrics
     attr_accessor :url
     # Extra host names served by the app (the url host and www. are implied).
     attr_accessor :hosts
-    # Local port the app listens on. Detected from Puma / `rails s -p` / PORT when nil.
+    # Local TCP port the app listens on. Detected from the real listeners when nil.
     attr_accessor :port
+    # Unix socket the app listens on (e.g. "/tmp/cooking.socket"). Detected when nil.
+    attr_accessor :socket
     # GNU screen session the app runs in, checked when set.
     attr_accessor :screen
     # Path requested on `url` for the public check.
@@ -42,16 +44,20 @@ module MonitorMetrics
       name || @config.app_name || default_name
     end
 
-    # Hash shared by the registry file and the metrics report.
-    def to_h(detected_port = nil, port_source = nil)
+    # Hash shared by the registry file and the metrics report. `detected` is
+    # PortDetector#detect output.
+    def to_h(detected = {})
       validate!
+      explicit = port || socket
       {
         "id" => resolved_id,
         "name" => resolved_name,
         "url" => url,
         "hosts" => Array(hosts).map(&:to_s),
-        "port" => port ? Integer(port) : detected_port,
-        "port_source" => port ? "config" : port_source,
+        "port" => port ? Integer(port) : detected["port"],
+        "socket" => socket || detected["socket"],
+        "port_source" => explicit ? "config" : detected["source"],
+        "listeners" => detected["listeners"] || Listeners.empty,
         "screen" => screen,
         "health_path" => health_path,
         "order" => order,
@@ -66,6 +72,7 @@ module MonitorMetrics
       problems << "id #{resolved_id.inspect} must match #{ID_FORMAT.source}" unless resolved_id =~ ID_FORMAT
       problems << "url must start with http:// or https://" if url && url !~ %r{\Ahttps?://[^/\s]+}
       problems << "port must be an integer 1-65535" if port && !(Integer(port, exception: false).to_i.between?(1, 65_535))
+      problems << "socket must be an absolute path" if socket && !socket.to_s.start_with?("/")
       problems << "order must be a number" unless order.is_a?(Numeric)
       problems << "slow_ms must be a positive number" if slow_ms && !(slow_ms.is_a?(Numeric) && slow_ms > 0)
       problems << "health_path must start with /" unless health_path.to_s.start_with?("/")

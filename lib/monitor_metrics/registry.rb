@@ -13,6 +13,7 @@ module MonitorMetrics
 
       path = write(config, detector)
       log("registered #{path}")
+      watch_until_listening(config, detector) unless listening?(detector)
       path
     rescue StandardError => e
       log("registration failed: #{e.class}: #{e.message}", :warn)
@@ -29,9 +30,38 @@ module MonitorMetrics
       nil
     end
 
+    # At boot the server has usually not bound its sockets yet (Rails loads
+    # before Puma binds), so look again in the background until it has and
+    # rewrite the entry with the real address.
+    def watch_until_listening(config, detector, attempts: 120, interval: 1)
+      Thread.new do
+        Thread.current.name = "monitor_metrics registry" if Thread.current.respond_to?(:name=)
+        wait_for_listeners(config, detector, attempts: attempts, interval: interval)
+      end
+    end
+
+    def wait_for_listeners(config, detector, attempts: 120, interval: 1)
+      attempts.times do
+        sleep(interval) if interval > 0
+        next unless listening?(detector)
+
+        path = write(config, detector)
+        log("listening, updated #{path}")
+        return path
+      end
+      log("no listening socket found after #{attempts} checks; set a.port or a.socket", :warn)
+      nil
+    rescue StandardError => e
+      log("registry update failed: #{e.class}: #{e.message}", :warn)
+      nil
+    end
+
+    def listening?(detector)
+      detector.detect["source"] == "listening"
+    end
+
     def write(config, detector = PortDetector.new)
-      port, source = detector.detect
-      entry = config.app.to_h(port, source).merge(
+      entry = config.app.to_h(detector.detect).merge(
         "schema" => SCHEMA,
         "gem_version" => VERSION,
         "root" => app_root,

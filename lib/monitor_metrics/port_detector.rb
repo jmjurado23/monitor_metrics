@@ -1,36 +1,39 @@
 module MonitorMetrics
-  # Finds the local port the app serves on, so nobody has to repeat it in the
-  # collector config. Sources, most reliable first:
+  # Works out where the collector can reach this app, so nobody repeats it in
+  # the collector config. Sources, most reliable first:
   #
-  #   rails_server  options of the running `rails server` (-p / --port)
-  #   puma          bind of the `puma` CLI (config/puma.rb, -p, -b)
-  #   argv          -p 3000 / --port=3000 on the command line
-  #   env           ENV["PORT"]
+  #   listening  sockets the process really listens on (Linux /proc), once bound
+  #   puma       binds of the `puma` CLI (tcp:// and unix://)
+  #   argv       -p 3000 / --port=3000 on the command line
+  #   env        ENV["PORT"]
   #
-  # Returns [port, source] or [nil, nil].
+  # `rails server` options are deliberately not used for the address: they
+  # report Port 3000 by default even when config/puma.rb binds a Unix socket.
+  #
+  # #detect returns { "port", "socket", "source", "listeners" }.
   class PortDetector
-    def initialize(argv: ARGV, env: ENV, rails_server_options: :auto, puma_binds: :auto)
+    def initialize(argv: ARGV, env: ENV, rails_server_options: :auto, puma_binds: :auto, listeners: :auto)
       @argv = argv
       @env = env
       @rails_server_options = rails_server_options
       @puma_binds = puma_binds
+      @listeners = listeners
     end
 
     def detect
-      [
-        ["rails_server", -> { from_rails_server }],
-        ["puma", -> { from_binds }],
-        ["argv", -> { from_argv }],
-        ["env", -> { valid(@env["PORT"]) }]
-      ].each do |source, finder|
-        port = begin
-          finder.call
-        rescue StandardError
-          nil
-        end
-        return [port, source] if port
-      end
-      [nil, nil]
+      live = listeners
+      return result(live["tcp"].first, live["unix"].first, "listening", live) if any?(live)
+
+      binds = parsed_binds
+      return result(binds["tcp"].first, binds["unix"].first, "puma", live) if any?(binds)
+
+      port = safely { from_argv }
+      return result(port, nil, "argv", live) if port
+
+      port = safely { valid(@env["PORT"]) }
+      return result(port, nil, "env", live) if port
+
+      result(nil, nil, nil, live)
     end
 
     # True when this process is serving HTTP (not a console, rake or runner).
@@ -40,18 +43,37 @@ module MonitorMetrics
 
     private
 
-    def from_rails_server
-      opts = rails_server_options
-      opts && valid(opts[:Port] || opts["Port"] || opts[:port])
+    def result(port, socket, source, live)
+      { "port" => port, "socket" => socket, "source" => source, "listeners" => live }
     end
 
-    def from_binds
-      puma_binds.each do |bind|
-        match = bind.to_s.match(%r{\Atcp://[^/]*:(\d+)})
-        port = match && valid(match[1])
-        return port if port
-      end
+    def any?(found)
+      !(found["tcp"].empty? && found["unix"].empty?)
+    end
+
+    def safely
+      yield
+    rescue StandardError
       nil
+    end
+
+    def listeners
+      return @listeners unless @listeners == :auto
+
+      Listeners.current
+    end
+
+    def parsed_binds
+      found = Listeners.empty
+      puma_binds.each do |bind|
+        bind = bind.to_s
+        if (m = bind.match(%r{\Atcp://[^/]*:(\d+)})) && (port = valid(m[1]))
+          found["tcp"] << port
+        elsif (m = bind.match(%r{\Aunix://(/[^?]+)}))
+          found["unix"] << m[1]
+        end
+      end
+      found
     end
 
     def from_argv

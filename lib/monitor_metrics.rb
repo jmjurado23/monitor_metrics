@@ -4,6 +4,7 @@ require "time"
 require "monitor_metrics/version"
 require "monitor_metrics/metric"
 require "monitor_metrics/app_settings"
+require "monitor_metrics/listeners"
 require "monitor_metrics/port_detector"
 require "monitor_metrics/configuration"
 require "monitor_metrics/buckets"
@@ -41,7 +42,6 @@ module MonitorMetrics
     # Test helper.
     def reset!
       @config = Configuration.new
-      Report.reset_port!
     end
   end
 end

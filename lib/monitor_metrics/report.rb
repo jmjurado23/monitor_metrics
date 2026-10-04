@@ -31,9 +31,10 @@ module MonitorMetrics
       app.executor.wrap(&block)
     end
 
+    # Detected on every call: reading /proc is cheap and, unlike at boot, the
+    # sockets are certainly bound by the time a request arrives.
     def monitor_info
-      port, source = Report.detected_port
-      @config.app.to_h(port, source)
+      @config.app.to_h(PortDetector.new.detect)
     end
 
     def app_info(now)
@@ -69,15 +70,6 @@ module MonitorMetrics
     end
 
     class << self
-      # Port detection walks ObjectSpace once; the answer cannot change later.
-      def detected_port
-        @detected_port ||= PortDetector.new.detect
-      end
-
-      def reset_port!
-        @detected_port = nil
-      end
-
       # Deployed git SHA, resolved once per process.
       def revision
         return @revision if defined?(@revision)
