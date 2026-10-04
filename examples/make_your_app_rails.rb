@@ -1,12 +1,21 @@
 # config/initializers/monitor_metrics.rb in make_your_app_rails (Mongoid 6, Rails 5.2)
 MonitorMetrics.configure do |c|
-  c.app_name = "Make Your App"
+  c.app do |a|
+    a.id    = "makeyourapp"     # keep it stable: the collector keys history by it
+    a.name  = "Make Your App"
+    a.url   = "https://makeyourapp.es"
+    a.order = 4
+    # a.port   = 3000           # detected from Puma / `rails s -p` when omitted
+    # a.screen = "session_name" # checked when set
+  end
 
   c.metric :users, label: "Users" do
     User.count
   end
 
-  c.metric :generations_processing, label: "Generations in progress" do
+  # A backlog means generation is stuck: WARNING above 10, DOWN above 50.
+  c.metric :generations_processing, label: "Generations in progress", overview: true,
+                                    warn_above: 10, critical_above: 50 do
     Generation.where(state: :processing).count
   end
 

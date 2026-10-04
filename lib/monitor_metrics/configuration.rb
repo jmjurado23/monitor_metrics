@@ -13,10 +13,15 @@ module MonitorMetrics
     attr_accessor :reject_proxied
     # Seconds a metric value is cached before its block runs again.
     attr_accessor :default_ttl
-    # Shown on the dashboard. Defaults to the Rails application module name.
+    # Kept for v0.1 initializers; prefer `c.app { |a| a.name = ... }`.
     attr_accessor :app_name
     # Set to false to skip the automatic ActiveRecord / Mongoid ping.
     attr_accessor :check_databases
+    # Folder where each app registers itself at boot so the collector finds it
+    # (default ~/.wallmon/apps.d, or ENV["MONITOR_METRICS_REGISTRY"]).
+    attr_accessor :registry_dir
+    # Rails environments that register. The endpoint works in every environment.
+    attr_accessor :register_environments
 
     attr_reader :metrics
 
@@ -28,7 +33,27 @@ module MonitorMetrics
       @default_ttl = 60
       @app_name = nil
       @check_databases = true
+      @registry_dir = nil
+      @register_environments = %w[production]
       @metrics = []
+      @app = AppSettings.new(self)
+    end
+
+    # How this app appears on the wall: id, name, url, port, order...
+    #
+    #   c.app do |a|
+    #     a.name = "Cocina Tradicional"
+    #     a.url  = "https://cocina-tradicional.es"
+    #   end
+    def app
+      yield @app if block_given?
+      @app
+    end
+
+    def resolved_registry_dir
+      dir = registry_dir || ENV["MONITOR_METRICS_REGISTRY"]
+      dir = File.join(Dir.home, ".wallmon", "apps.d") if blank?(dir)
+      File.expand_path(dir)
     end
 
     # Declares a metric. The block runs at most once per `ttl` seconds.
@@ -37,10 +62,13 @@ module MonitorMetrics
     #   type: :series  -> block returns [[time, value], ...] or { time => value }
     #   type: :table   -> block returns [{ "col" => val }, ...]
     #   type: :text    -> block returns anything responding to #to_s
-    def metric(key, label: nil, type: :number, unit: nil, ttl: nil, &block)
+    #
+    # Display options: overview: true, hidden: true. Alarm thresholds (numbers):
+    # warn_above:, critical_above:, warn_below:, critical_below:.
+    def metric(key, label: nil, type: :number, unit: nil, ttl: nil, **options, &block)
       raise ArgumentError, "metric #{key.inspect} needs a block" unless block
 
-      metric = Metric.new(key.to_s, label || humanize(key), type, unit, ttl || default_ttl, block)
+      metric = Metric.new(key.to_s, label || humanize(key), type, unit, ttl || default_ttl, block, options)
       @metrics.reject! { |m| m.key == metric.key }
       @metrics << metric
       metric

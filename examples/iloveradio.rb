@@ -1,8 +1,15 @@
 # config/initializers/monitor_metrics.rb in iloveradio (PostgreSQL, Rails 7.0)
 MonitorMetrics.configure do |c|
-  c.app_name = "I Love Radio"
+  c.app do |a|
+    a.id    = "iloveradio"     # keep it stable: the collector keys history by it
+    a.name  = "I Love Radio"
+    a.url   = "https://iloveradio.es"
+    a.order = 3
+    # a.port   = 3000           # detected from Puma / `rails s -p` when omitted
+    # a.screen = "session_name" # checked when set
+  end
 
-  c.metric :played_today, label: "Songs played today" do
+  c.metric :played_today, label: "Songs played today", overview: true do
     PlayedSong.where("datetime >= ?", Time.zone.now.beginning_of_day).count
   end
 

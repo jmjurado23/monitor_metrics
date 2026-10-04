@@ -34,8 +34,10 @@ class MiddlewareTest < Minitest::Test
     assert_equal 200, last_response.status
     assert_equal "application/json", last_response.headers["content-type"]
     body = JSON.parse(last_response.body)
-    assert_equal 1, body["schema"]
+    assert_equal 2, body["schema"]
     assert_equal "TestApp", body["app"]["name"]
+    assert_equal "testapp", body["monitor"]["id"]
+    assert_equal "/internal/metrics", body["monitor"]["metrics_path"]
     assert_equal RUBY_VERSION, body["app"]["ruby"]
     assert_equal [], body["metrics"]
   end

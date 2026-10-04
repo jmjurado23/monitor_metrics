@@ -11,6 +11,7 @@ module MonitorMetrics
           "schema" => SCHEMA,
           "gem_version" => VERSION,
           "generated_at" => now.utc.iso8601,
+          "monitor" => monitor_info,
           "app" => app_info(now),
           "databases" => @config.check_databases ? Database.check : [],
           "metrics" => @config.metrics.map { |m| m.evaluate(now) }
@@ -30,6 +31,11 @@ module MonitorMetrics
       app.executor.wrap(&block)
     end
 
+    def monitor_info
+      port, source = Report.detected_port
+      @config.app.to_h(port, source)
+    end
+
     def app_info(now)
       {
         "name" => app_name,
@@ -46,10 +52,7 @@ module MonitorMetrics
     end
 
     def app_name
-      return @config.app_name if @config.app_name
-      return nil unless defined?(::Rails) && ::Rails.respond_to?(:application) && ::Rails.application
-
-      ::Rails.application.class.name.split("::").first
+      @config.app.resolved_name
     end
 
     def rails_env
@@ -66,6 +69,15 @@ module MonitorMetrics
     end
 
     class << self
+      # Port detection walks ObjectSpace once; the answer cannot change later.
+      def detected_port
+        @detected_port ||= PortDetector.new.detect
+      end
+
+      def reset_port!
+        @detected_port = nil
+      end
+
       # Deployed git SHA, resolved once per process.
       def revision
         return @revision if defined?(@revision)

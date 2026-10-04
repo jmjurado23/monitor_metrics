@@ -1,8 +1,8 @@
 require "test_helper"
 
 class MetricTest < Minitest::Test
-  def build(type, ttl: 60, &block)
-    MonitorMetrics::Metric.new("k", "K", type, nil, ttl, block)
+  def build(type, ttl: 60, options: {}, &block)
+    MonitorMetrics::Metric.new("k", "K", type, nil, ttl, block, options)
   end
 
   def test_caches_within_ttl
@@ -47,5 +47,36 @@ class MetricTest < Minitest::Test
 
   def test_unknown_type_raises
     assert_raises(ArgumentError) { build(:pie) { 1 } }
+  end
+
+  def test_levels_from_thresholds
+    value = 0
+    metric = build(:number, ttl: 0, options: { warn_above: 10, critical_above: 100 }) { value }
+    assert_equal "ok", metric.evaluate["level"]
+    value = 11
+    assert_equal "warning", metric.evaluate["level"]
+    value = 101
+    result = metric.evaluate
+    assert_equal "critical", result["level"]
+    assert_equal({ "warn_above" => 10, "critical_above" => 100 }, result["thresholds"])
+  end
+
+  def test_below_thresholds
+    metric = build(:number, options: { warn_below: 5, critical_below: 1 }) { 3 }
+    assert_equal "warning", metric.evaluate["level"]
+  end
+
+  def test_no_thresholds_means_no_level
+    result = build(:number, options: { overview: true }) { 3 }.evaluate
+    assert_nil result["level"]
+    assert_equal true, result["overview"]
+    assert_equal false, result["hidden"]
+  end
+
+  def test_threshold_validation
+    assert_raises(ArgumentError) { build(:series, options: { warn_above: 1 }) { [] } }
+    assert_raises(ArgumentError) { build(:number, options: { warn_above: 10, critical_above: 5 }) { 1 } }
+    assert_raises(ArgumentError) { build(:number, options: { warn_above: "10" }) { 1 } }
+    assert_raises(ArgumentError) { build(:number, options: { colour: "red" }) { 1 } }
   end
 end

@@ -1,12 +1,19 @@
 # config/initializers/monitor_metrics.rb in cooking_rails (Mongoid 6, Rails 5.2)
 MonitorMetrics.configure do |c|
-  c.app_name = "Cocina Tradicional"
+  c.app do |a|
+    a.id    = "cocina"     # keep it stable: the collector keys history by it
+    a.name  = "Cocina Tradicional"
+    a.url   = "https://cocina-tradicional.es"
+    a.order = 1
+    # a.port   = 3000           # detected from Puma / `rails s -p` when omitted
+    # a.screen = "session_name" # checked when set
+  end
 
-  c.metric :recipes, label: "Recipes" do
+  c.metric :recipes, label: "Recipes", overview: true do
     Recipe.count
   end
 
-  c.metric :signups_today, label: "Sign-ups today" do
+  c.metric :signups_today, label: "Sign-ups today", overview: true do
     User.where(:created_at.gte => Time.zone.now.beginning_of_day).count
   end
 

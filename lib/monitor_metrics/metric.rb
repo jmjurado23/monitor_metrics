@@ -2,13 +2,18 @@ module MonitorMetrics
   # One declared metric plus its cached last result.
   class Metric
     TYPES = %w[number series table text].freeze
+    THRESHOLDS = %w[warn_above critical_above warn_below critical_below].freeze
     MAX_SERIES_POINTS = 500
     MAX_TABLE_ROWS = 50
     MAX_TEXT = 500
 
-    attr_reader :key, :label, :type, :unit, :ttl
+    attr_reader :key, :label, :type, :unit, :ttl, :overview, :hidden, :thresholds
 
-    def initialize(key, label, type, unit, ttl, block)
+    # options: overview: true  -> shown on the app's overview tile
+    #          hidden: true    -> collected but not shown
+    #          warn_above: / critical_above: / warn_below: / critical_below: (numbers only)
+    #            -> the metric gets a level and can turn the app WARNING or DOWN
+    def initialize(key, label, type, unit, ttl, block, options = {})
       @key = key
       @label = label.to_s
       @type = type.to_s
@@ -23,6 +28,19 @@ module MonitorMetrics
       @computed_at = nil
       @duration_ms = nil
       @stale = false
+      @overview = options[:overview] ? true : false
+      @hidden = options[:hidden] ? true : false
+      @thresholds = build_thresholds(options)
+    end
+
+    # "ok" / "warning" / "critical" against the thresholds, nil when the metric
+    # has none or no numeric value.
+    def level_for(value)
+      return nil if @thresholds.empty? || !value.is_a?(Numeric)
+      return "critical" if beyond?(value, "critical")
+      return "warning" if beyond?(value, "warn")
+
+      "ok"
     end
 
     # Returns the cached value, recomputing it when older than ttl. A failing
@@ -61,8 +79,45 @@ module MonitorMetrics
         "error" => @error,
         "stale" => @stale ? true : false,
         "ms" => @duration_ms,
-        "computed_at" => @computed_at && @computed_at.utc.iso8601
+        "computed_at" => @computed_at && @computed_at.utc.iso8601,
+        "overview" => overview,
+        "hidden" => hidden,
+        "thresholds" => @thresholds.empty? ? nil : @thresholds,
+        "level" => level_for(@value)
       }
+    end
+
+    def build_thresholds(options)
+      unknown = options.keys.map(&:to_s) - THRESHOLDS - %w[overview hidden]
+      raise ArgumentError, "metric #{key}: unknown option(s) #{unknown.join(', ')}" unless unknown.empty?
+
+      thresholds = {}
+      THRESHOLDS.each do |name|
+        value = options[name.to_sym]
+        next if value.nil?
+        raise ArgumentError, "metric #{key}: #{name} must be a number" unless value.is_a?(Numeric)
+
+        thresholds[name] = value
+      end
+      if !thresholds.empty? && type != "number"
+        raise ArgumentError, "metric #{key}: thresholds only apply to type: :number"
+      end
+      check_order(thresholds, "warn_above", "critical_above") { |w, c| w <= c }
+      check_order(thresholds, "warn_below", "critical_below") { |w, c| w >= c }
+      thresholds
+    end
+
+    def check_order(thresholds, warn, critical)
+      return unless thresholds[warn] && thresholds[critical]
+      return if yield(thresholds[warn], thresholds[critical])
+
+      raise ArgumentError, "metric #{key}: #{warn} must be less severe than #{critical}"
+    end
+
+    def beyond?(value, prefix)
+      above = @thresholds["#{prefix}_above"]
+      below = @thresholds["#{prefix}_below"]
+      (above && value > above) || (below && value < below) ? true : false
     end
 
     def normalize(raw)
